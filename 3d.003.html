@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Three.js • Orbit + GLTFLoader + Fit Camera</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { background: #0e0e10; color: #ddd; font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    #info { position: fixed; top: 10px; left: 12px; padding: 8px 10px; background: rgba(0,0,0,0.45); border-radius: 10px; font-size: 14px; backdrop-filter: blur(6px); }
+    #info a { color: #7fd1b9; text-decoration: none; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="info">Orbit + GLTFLoader • Trascina per orbitare • Rotellina per zoom • <span id="status">Pronto</span></div>
+
+  <!-- Import map: nessun bundler, funziona anche con doppio clic -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    // (opzionale) DRACO/meshopt per modelli compressi:
+    // import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+    // --- Renderer ---
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.body.appendChild(renderer.domElement);
+
+    // --- Scene ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111214);
+
+    // --- Camera ---
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+    camera.position.set(6, 3.5, 8);
+
+    // --- Controls ---
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1, 0);
+
+    // --- Luci ---
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x202030, 0.5);
+    scene.add(hemi);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+    dirLight.position.set(5, 10, 6);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 80;
+    dirLight.shadow.bias = -0.00015;
+    scene.add(dirLight);
+
+    // --- Terreno ---
+    const groundGeo = new THREE.PlaneGeometry(200, 200);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x2a2d34, roughness: 0.95, metalness: 0.0 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // --- Helper griglia ---
+    const grid = new THREE.GridHelper(200, 200, 0x555555, 0x333333);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.35;
+    scene.add(grid);
+
+    // --- Caricamento GLB/GLTF ---
+    const statusEl = document.getElementById('status');
+    const loader = new GLTFLoader();
+    // (opzionale) DRACO per .glb compressi:
+    // const draco = new DRACOLoader();
+    // draco.setDecoderPath('https://unpkg.com/three@0.160/examples/jsm/libs/draco/');
+    // loader.setDRACOLoader(draco);
+
+    // Percorso del modello: metti qui il tuo file (es: 'models/scene.glb')
+    const MODEL_URL = 'models/Fox.glb'; // cambia con il tuo percorso/filename
+	
+	
+
+    loader.load(
+      MODEL_URL,
+      (gltf) => {
+        const root = gltf.scene;
+        root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        scene.add(root);
+
+        // Fit camera al modello
+        fitViewToObject(camera, controls, root, { padding: 1.2, smooth: true });
+        statusEl.textContent = 'Modello caricato';
+      },
+      (e) => {
+        if (e.total) {
+          const pct = ((e.loaded / e.total) * 100).toFixed(0);
+          statusEl.textContent = `Caricamento: ${pct}%`;
+        } else {
+          statusEl.textContent = 'Caricamento…';
+        }
+      },
+      (err) => {
+        console.error(err);
+        statusEl.textContent = 'Errore nel caricamento del modello';
+      }
+    );
+
+    // --- Funzione: fit camera a un oggetto ---
+    function fitViewToObject(camera, controls, object, { padding = 1.2, smooth = true } = {}) {
+      const box = new THREE.Box3().setFromObject(object);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      // calcola distanza in base al FOV e alla dimensione più grande
+      const maxSize = Math.max(size.x, size.y, size.z);
+      const fov = camera.fov * (Math.PI / 180);
+      let dist = (maxSize * padding) / Math.tan(fov / 2);
+
+      // posiziona la camera lungo una diagonale
+      const dir = new THREE.Vector3(1, 0.6, 1).normalize();
+      const newPos = center.clone().add(dir.multiplyScalar(dist));
+
+      if (smooth) {
+        // sposta dolcemente con un lerp semplice
+        const start = camera.position.clone();
+        const startTarget = controls.target.clone();
+        const end = newPos;
+        const endTarget = center;
+        let t = 0;
+        (function animateFit(){
+          t += 0.06;
+          const k = t < 1 ? (1 - Math.cos(Math.PI * t)) * 0.5 : 1; // easeInOut
+          camera.position.lerpVectors(start, end, k);
+          controls.target.lerpVectors(startTarget, endTarget, k);
+          if (t < 1) requestAnimationFrame(animateFit);
+        })();
+      } else {
+        camera.position.copy(newPos);
+        controls.target.copy(center);
+      }
+      camera.near = Math.max(0.01, maxSize / 1000);
+      camera.far = Math.max(100, dist * 5);
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+
+    // --- Resize ---
+    function onResize() {
+      const w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', onResize);
+
+    // --- Animazione ---
+    let t0 = performance.now();
+    function tick() {
+      const t = performance.now();
+      const dt = (t - t0) / 1000; // sec
+      t0 = t;
+
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+    tick();
+
+    // Nota importante su CORS/fetch:
+    // Per caricare file locali (glb/gltf/texture), è meglio avviare un piccolo server
+    // nella cartella del progetto, per esempio:
+    //   - Python 3:  python -m http.server 8000   (poi apri http://localhost:8000)
+    //   - VS Code:  estensione "Live Server"
+    // Aprire direttamente file:// può bloccare i fetch in alcuni browser.
+  </script>
+</body>
+</html>

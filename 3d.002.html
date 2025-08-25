@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"><title>Three + OrbitControls</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#111}</style></head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(6,4,8);
+
+const controls = new OrbitControls(camera, renderer.domElement); // <-- niente THREE.
+controls.target.set(0,1,0);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x202030, 0.6));
+const knot = new THREE.Mesh(
+  new THREE.TorusKnotGeometry(1,0.35,180,32),
+  new THREE.MeshStandardMaterial({color:0x7fd1b9, roughness:0.35})
+);
+knot.position.y = 1.2; scene.add(knot);
+
+addEventListener('resize', ()=>{renderer.setSize(innerWidth,innerHeight); camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();});
+(function tick(){ requestAnimationFrame(tick); knot.rotation.y+=0.01; controls.update(); renderer.render(scene,camera); })();
+</script>
+</body>
+</html>
